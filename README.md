@@ -32,13 +32,13 @@ Transform your laptop touchpad into intuitive, dual-edge hardware sliders for **
 
 ### 1. Add the Plugin via Omarchy CLI
 ```bash
-omarchy plugin add https://github.com/omshankara/omarchy-touchpad-edge.git --enable
+omarchy plugin add https://github.com/OmAjitJadhav/omarchy-touchpad-edge.git --enable
 ```
 
 ### 2. Configure Device Permissions (One-Time Setup)
 To allow reading touchpad touch coordinates without root, run the setup script:
 ```bash
-cd ~/.config/omarchy/plugins/omshankara.touchpad-edge
+cd ~/.config/omarchy/plugins/omajitjadhav.touchpad-edge
 ./install.sh
 ```
 *(Or manually copy `udev/71-touchpad-edge.rules` to `/etc/udev/rules.d/` and reload `udevadm control --reload-rules && udevadm trigger --subsystem-match=input`)*.
@@ -96,4 +96,4 @@ Options can be customized via the status bar popup panel or directly in `~/.conf
 
 ## 📄 License
 
-MIT License. Crafted with precision for the Omarchy community by [omshankara](https://github.com/omshankara).
+MIT License. Crafted with precision for the Omarchy community by [OmAjitJadhav](https://github.com/OmAjitJadhav).

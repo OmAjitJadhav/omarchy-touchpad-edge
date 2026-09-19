@@ -11,8 +11,8 @@ import "Model.js" as Model
 // Allows configuring master state, individual sliders, edge swap, step sizes, and edge width.
 Panel {
     id: root
-    moduleName: "omshankara.touchpad-edge"
-    ipcTarget: "omshankara.touchpad-edge"
+    moduleName: "omajitjadhav.touchpad-edge"
+    ipcTarget: "omajitjadhav.touchpad-edge"
     manageIpc: false
 
     property var anchorItem: null

@@ -9,7 +9,7 @@ import "Model.js" as Model
 // Displays an interactive touchpad icon (󰍽) with quick-toggle and settings panel.
 BarWidget {
     id: root
-    moduleName: "omshankara.touchpad-edge"
+    moduleName: "omajitjadhav.touchpad-edge"
 
     property var config: Model.defaultConfig()
 
@@ -115,7 +115,7 @@ BarWidget {
     }
 
     IpcHandler {
-        target: "omshankara.touchpad-edge"
+        target: "omajitjadhav.touchpad-edge"
 
         function open(): void { root.open() }
         function close(): void { root.close() }
