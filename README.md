@@ -85,12 +85,31 @@ Options can be customized via the status bar popup panel or directly in `~/.conf
 
 ---
 
-## 🛠️ Requirements
+## 🛠️ Requirements & Dependencies
 
 - **Omarchy Linux** (Quickshell + Hyprland)
-- Python 3 with `python-evdev` (`sudo pacman -S --needed python-evdev`)
-- `brightnessctl` (pre-installed on Omarchy)
-- Standard multi-touch laptop touchpad (I2C / HID / PS/2)
+- **python-evdev** (`sudo pacman -S --needed python-evdev`): Linux kernel input event reading for touchpad coordinates.
+- **brightnessctl** (pre-installed on Omarchy): Display backlight adjustment.
+- **pamixer** / **wpctl** (pre-installed on Omarchy): Audio volume control.
+- Standard multi-touch laptop touchpad (I2C / HID / PS/2).
+
+---
+
+## 🗑️ Removal & Uninstallation
+
+To disable and remove the plugin from your Omarchy setup:
+
+```bash
+# 1. Disable the plugin in Omarchy
+omarchy plugin disable omajitjadhav.touchpad-edge
+
+# 2. Remove the plugin from installed plugins
+omarchy plugin remove omajitjadhav.touchpad-edge --yes
+
+# 3. (Optional) Remove the custom udev hardware rule
+sudo rm -f /etc/udev/rules.d/71-touchpad-edge.rules
+sudo udevadm control --reload-rules && sudo udevadm trigger --subsystem-match=input
+```
 
 ---
 
