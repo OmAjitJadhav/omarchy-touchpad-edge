@@ -3,16 +3,70 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
 
-// Status bar indicator for Touchpad Edge Controls.
-// Shows an indicator on the bar and toggles the settings panel on click.
+// Status bar widget for Touchpad Edge Controls.
+// Displays an interactive touchpad icon (󰍽) with quick-toggle and settings panel.
 BarWidget {
     id: root
     moduleName: "omshankara.touchpad-edge"
 
-    property bool enabled: true
-    property bool volumeEnabled: true
-    property bool brightnessEnabled: true
+    property var config: Model.defaultConfig()
+
+    function scriptPath() {
+        return Qt.resolvedUrl("bin/touchpad-edge-daemon").toString().replace(/^file:\/\//, "")
+    }
+
+    function fetchStatus() {
+        if (!statusProc.running) statusProc.running = true
+    }
+
+    function toggleMaster() {
+        toggleProc.command = ["/usr/bin/python3", root.scriptPath(), "toggle"]
+        toggleProc.running = true
+    }
+
+    Timer {
+        interval: 3000
+        running: true
+        repeat: true
+        onTriggered: root.fetchStatus()
+    }
+
+    Process {
+        id: statusProc
+        command: ["/usr/bin/python3", root.scriptPath(), "status"]
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                try {
+                    var data = JSON.parse(text)
+                    if (data && typeof data === "object") {
+                        root.config = data
+                    }
+                } catch(e) {}
+            }
+        }
+    }
+
+    Process {
+        id: toggleProc
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                try {
+                    var data = JSON.parse(text)
+                    if (data && typeof data === "object") {
+                        root.config = data
+                    }
+                } catch(e) {}
+            }
+        }
+    }
+
+    Component.onCompleted: {
+        root.fetchStatus()
+    }
 
     readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
 
@@ -68,17 +122,22 @@ BarWidget {
         function show(): void { root.open() }
         function hide(): void { root.close() }
         function toggle(): void { root.togglePanel() }
+        function toggleMaster(): void { root.toggleMaster() }
     }
 
-    WidgetButton {
+    BarIconButton {
         id: button
         anchors.fill: parent
         bar: root.bar
         text: "󰍽"
-        fontSize: Style.font.icon
-        tooltipText: "Touchpad Edge Controls: Volume (Right) & Brightness (Left)"
-        onPressed: function(b) {
-            root.togglePanel()
+        active: root.config.enabled === true
+        tooltipText: Model.getTooltipText(root.config)
+        onPressed: function(buttonCode) {
+            if (buttonCode === Qt.RightButton) {
+                root.toggleMaster()
+            } else {
+                root.togglePanel()
+            }
         }
     }
 }

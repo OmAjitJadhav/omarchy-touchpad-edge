@@ -6,6 +6,10 @@ Provides dual-edge gesture sliders on the laptop touchpad:
   - Left Edge Vertical Swipe  -> Display Brightness (with Omarchy brightness OSD)
 
 Part of the omshankara.touchpad-edge plugin for Omarchy.
+Supports:
+  - Default: runs the background listener daemon
+  - 'status': outputs current status and config as JSON
+  - 'apply --json-data <json>': atomically updates configuration
 """
 
 import os
@@ -15,22 +19,26 @@ import time
 import signal
 import select
 import subprocess
+import argparse
+import tempfile
+import fcntl
 import evdev
 from evdev import ecodes
 
 CONFIG_PATH = os.path.expanduser("~/.config/omarchy/touchpad-edge.json")
+LOCK_PATH = os.path.expanduser("~/.config/omarchy/touchpad-edge.lock")
 
 DEFAULT_CONFIG = {
     "enabled": True,
     "volume_enabled": True,
     "brightness_enabled": True,
-    "edge_start_percent": 0.10,      # Outer 10% on left/right initiates the edge swipe
-    "edge_cancel_percent": 0.16,     # Drift threshold: cancelling if finger moves deeper than 16%
+    "edge_start_percent": 0.10,      # Outer 10% initiates the edge swipe
+    "edge_cancel_percent": 0.16,     # Cancel if finger drifts deeper than 16%
     "step_travel_px": 45,            # Physical travel distance per step in touchpad units (~1.5 mm)
     "volume_step": 2,                # Volume change percentage per step (+2% / -2%)
     "brightness_step": 2,            # Brightness change percentage per step (+2% / -2%)
     "invert_direction": False,       # False: Up raises / Down lowers; True: Inverted
-    "min_interval_sec": 0.03         # Minimum cooldown between hardware updates
+    "min_interval_sec": 0.03         # Minimum interval between hardware volume/brightness calls
 }
 
 
@@ -45,6 +53,20 @@ def load_config():
                     cfg.update(user_cfg)
         except Exception as err:
             sys.stderr.write(f"touchpad-edge: could not read {CONFIG_PATH}: {err}\n")
+    return cfg
+
+
+def save_config(new_data):
+    """Atomically write updated config to disk."""
+    cfg = load_config()
+    cfg.update(new_data)
+    os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+    temp_fd, temp_path = tempfile.mkstemp(dir=os.path.dirname(CONFIG_PATH), prefix=".cfg_tmp_")
+    with os.fdopen(temp_fd, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, indent=2)
+        f.flush()
+        os.fsync(f.fileno())
+    os.replace(temp_path, CONFIG_PATH)
     return cfg
 
 
@@ -108,7 +130,11 @@ def build_brightness_cmd(delta):
 
 def find_touchpad():
     """Find the primary multi-touch touchpad device."""
-    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    try:
+        devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    except Exception:
+        return None
+
     touchpads = []
     for dev in devices:
         name_lower = dev.name.lower()
@@ -124,8 +150,16 @@ def find_touchpad():
 
 
 def run_daemon():
+    os.makedirs(os.path.dirname(LOCK_PATH), exist_ok=True)
+    lock_file = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (IOError, OSError):
+        # Another daemon instance is already running
+        sys.exit(0)
+
     cfg = load_config()
-    last_cfg_check = time.monotonic()
+    last_cfg_mtime = 0.0
 
     volume = StepActionManager(cfg["volume_step"], cfg["min_interval_sec"], build_volume_cmd)
     brightness = StepActionManager(cfg["brightness_step"], cfg["min_interval_sec"], build_brightness_cmd)
@@ -157,15 +191,18 @@ def run_daemon():
             current_slot = 0
 
             while running:
-                now = time.monotonic()
-                # Reload config every 2 seconds if changed
-                if now - last_cfg_check > 2.0:
-                    cfg = load_config()
-                    volume.step_size = cfg.get("volume_step", 2)
-                    brightness.step_size = cfg.get("brightness_step", 2)
-                    last_cfg_check = now
+                # Reload config if file modified
+                try:
+                    if os.path.isfile(CONFIG_PATH):
+                        mtime = os.path.getmtime(CONFIG_PATH)
+                        if mtime > last_cfg_mtime:
+                            cfg = load_config()
+                            volume.step_size = cfg.get("volume_step", 2)
+                            brightness.step_size = cfg.get("brightness_step", 2)
+                            last_cfg_mtime = mtime
+                except Exception:
+                    pass
 
-                # Calculate boundaries with live config
                 edge_start = cfg.get("edge_start_percent", 0.10)
                 edge_cancel = cfg.get("edge_cancel_percent", 0.16)
                 step_px = cfg.get("step_travel_px", 45)
@@ -266,7 +303,6 @@ def run_daemon():
                                             slot_data["accum_y"] += dy
                                             manager = volume if mode == "volume" else brightness
 
-                                            # Direction calculation
                                             up_dir = -1 if invert else +1
                                             down_dir = +1 if invert else -1
 
@@ -297,5 +333,37 @@ def run_daemon():
     brightness.flush(force=True)
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Touchpad Edge Controls Controller")
+    parser.add_argument("action", nargs="?", default="run", choices=["run", "status", "apply", "toggle"])
+    parser.add_argument("--json-data", help="JSON data to merge into config")
+    args = parser.parse_args()
+
+    if args.action == "status":
+        cfg = load_config()
+        dev = find_touchpad()
+        cfg["device_name"] = dev.name if dev else "Touchpad Not Found"
+        cfg["device_found"] = dev is not None
+        print(json.dumps(cfg))
+    elif args.action == "apply":
+        if args.json_data:
+            try:
+                data = json.loads(args.json_data)
+                updated = save_config(data)
+                print(json.dumps(updated))
+            except Exception as e:
+                print(json.dumps({"error": str(e)}))
+                sys.exit(1)
+        else:
+            print(json.dumps(load_config()))
+    elif args.action == "toggle":
+        cfg = load_config()
+        cfg["enabled"] = not cfg.get("enabled", True)
+        updated = save_config(cfg)
+        print(json.dumps(updated))
+    else:
+        run_daemon()
+
+
 if __name__ == "__main__":
-    run_daemon()
+    main()

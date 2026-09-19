@@ -1,12 +1,14 @@
 import QtQuick
-import QtQuick.Layouts
 import QtQuick.Controls
+import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import "Model.js" as Model
 
-// Settings panel for Touchpad Edge Controls.
+// Settings popup panel for Touchpad Edge Controls.
+// Allows configuring master state, individual sliders, step sizes, and edge width.
 Panel {
     id: root
     moduleName: "omshankara.touchpad-edge"
@@ -17,200 +19,420 @@ Panel {
     property var hostWidget: null
     readonly property var barIdentity: hostWidget || root
 
-    readonly property color contentForeground: bar ? bar.foreground : Color.foreground
-    readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+    readonly property color foreground: bar ? bar.foreground : Color.foreground
+    readonly property color dim: Qt.darker(foreground, 1.55)
+    readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
+    readonly property color accent: Color.accent
 
-    readonly property string configPath: Quickshell.env("HOME") + "/.config/omarchy/touchpad-edge.json"
+    property var config: Model.defaultConfig()
 
-    property bool edgeEnabled: true
-    property bool volEnabled: true
-    property bool briEnabled: true
-    property bool invertDir: false
-    property int volStep: 2
-    property int briStep: 2
-    property real edgePercent: 0.10
-
-    function loadConfig() {
-        readConfigProc.running = true
+    function scriptPath() {
+        return Qt.resolvedUrl("bin/touchpad-edge-daemon").toString().replace(/^file:\/\//, "")
     }
 
-    function saveConfig() {
-        var payload = {
-            "enabled": root.edgeEnabled,
-            "volume_enabled": root.volEnabled,
-            "brightness_enabled": root.briEnabled,
-            "invert_direction": root.invertDir,
-            "volume_step": root.volStep,
-            "brightness_step": root.briStep,
-            "edge_start_percent": root.edgePercent,
-            "edge_cancel_percent": root.edgePercent + 0.06,
-            "step_travel_px": 45,
-            "min_interval_sec": 0.03
-        }
-        writeConfigProc.command = [
-            "python3", "-c",
-            "import os, json, sys; p=os.path.expanduser('~/.config/omarchy/touchpad-edge.json'); os.makedirs(os.path.dirname(p), exist_ok=True); f=open(p, 'w'); f.write(sys.argv[1]); f.close()",
-            JSON.stringify(payload, null, 2)
+    function fetchStatus() {
+        if (!statusProc.running) statusProc.running = true
+    }
+
+    function applySetting(patch) {
+        var updated = {}
+        for (var k in root.config) updated[k] = root.config[k]
+        for (var p in patch) updated[p] = patch[p]
+        root.config = updated
+
+        applyProc.command = [
+            "/usr/bin/python3",
+            root.scriptPath(),
+            "apply",
+            "--json-data",
+            JSON.stringify(patch)
         ]
-        writeConfigProc.running = true
+        applyProc.running = true
+    }
+
+    Timer {
+        interval: 2000
+        running: root.opened
+        repeat: true
+        onTriggered: root.fetchStatus()
     }
 
     Process {
-        id: readConfigProc
-        command: [
-            "python3", "-c",
-            "import os, json; p=os.path.expanduser('~/.config/omarchy/touchpad-edge.json'); print(open(p).read() if os.path.isfile(p) else '{}')"
-        ]
+        id: statusProc
+        command: ["/usr/bin/python3", root.scriptPath(), "status"]
         stdout: StdioCollector {
+            waitForEnd: true
             onStreamFinished: {
                 try {
                     var data = JSON.parse(text)
-                    if (data.enabled !== undefined) root.edgeEnabled = data.enabled
-                    if (data.volume_enabled !== undefined) root.volEnabled = data.volume_enabled
-                    if (data.brightness_enabled !== undefined) root.briEnabled = data.brightness_enabled
-                    if (data.invert_direction !== undefined) root.invertDir = data.invert_direction
-                    if (data.volume_step !== undefined) root.volStep = data.volume_step
-                    if (data.brightness_step !== undefined) root.briStep = data.brightness_step
-                    if (data.edge_start_percent !== undefined) root.edgePercent = data.edge_start_percent
+                    if (data && typeof data === "object") {
+                        root.config = data
+                    }
                 } catch(e) {}
             }
         }
     }
 
     Process {
-        id: writeConfigProc
+        id: applyProc
+        stdout: StdioCollector {
+            waitForEnd: true
+            onStreamFinished: {
+                try {
+                    var data = JSON.parse(text)
+                    if (data && typeof data === "object") {
+                        root.config = data
+                    }
+                } catch(e) {}
+            }
+        }
     }
 
     Component.onCompleted: {
-        root.loadConfig()
+        root.fetchStatus()
     }
 
-    ColumnLayout {
-        spacing: Style.space(12)
-        width: Math.min(Screen.width - Style.space(32), Style.space(320))
+    // Settings Card Popup
+    PopupCard {
+        id: popup
+        anchorItem: root.anchorItem
+        bar: root.bar
+        owner: root
+        open: root.opened
+        contentWidth: Style.space(380)
+        contentHeight: Style.space(670)
 
-        Text {
-            text: "Touchpad Edge Controls"
-            color: root.contentForeground
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.heading
-            font.bold: true
-            Layout.fillWidth: true
-        }
+        ColumnLayout {
+            anchors.fill: parent
+            spacing: Style.space(10)
 
-        Text {
-            text: "Swipe along the edges of your touchpad:"
-            color: Color.subtleText
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.caption
-            Layout.fillWidth: true
-        }
-
-        Rectangle {
-            height: 1
-            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-            Layout.fillWidth: true
-        }
-
-        // Master toggle
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                text: "Enable Gestures"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
+            // ── Header Row ───────────────────────────────────────────────────────
+            RowLayout {
                 Layout.fillWidth: true
-            }
-            Button {
-                text: root.edgeEnabled ? "ON" : "OFF"
-                onClicked: {
-                    root.edgeEnabled = !root.edgeEnabled
-                    root.saveConfig()
+                spacing: Style.space(12)
+
+                Text {
+                    text: "󰍽"
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.space(32)
+                    Layout.alignment: Qt.AlignVCenter
+                }
+
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.alignment: Qt.AlignVCenter
+                    spacing: Style.space(1)
+
+                    Text {
+                        text: "Touchpad Edge Controls"
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.title
+                        font.bold: true
+                    }
+
+                    Text {
+                        text: Model.formatDeviceName(root.config.device_name)
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                    }
+                }
+
+                // Active Badge
+                BorderSurface {
+                    implicitWidth: Style.space(64)
+                    implicitHeight: Style.space(26)
+                    radius: Style.cornerRadius
+                    color: root.config.enabled ? Style.selectedFillFor(root.foreground, root.accent) : Style.normalFillFor(root.foreground, root.accent)
+                    borderSpec: Border.controlSpec(root.config.enabled ? "selected" : "normal", root.foreground, root.accent)
+                    Layout.alignment: Qt.AlignVCenter
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: root.config.enabled ? "Active" : "Disabled"
+                        color: root.config.enabled ? root.foreground : root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.space(10)
+                        font.bold: true
+                    }
                 }
             }
-        }
 
-        // Right Edge Volume
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                text: "Right Edge (Volume 🔊)"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
+            // ── Master Switch ──────────────────────────────────────────────────
+            Toggle {
                 Layout.fillWidth: true
-            }
-            Button {
-                text: root.volEnabled ? "ON" : "OFF"
+                label: "Master Edge Controls"
+                description: "Turn all touchpad edge sliders on or off"
+                checked: root.config.enabled === true
                 onClicked: {
-                    root.volEnabled = !root.volEnabled
-                    root.saveConfig()
+                    root.applySetting({ "enabled": !root.config.enabled })
                 }
             }
-        }
 
-        // Left Edge Brightness
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                text: "Left Edge (Brightness ☀️)"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
-                Layout.fillWidth: true
+            PanelSeparator { Layout.fillWidth: true }
+
+            // ── Section 1: Sliders & Direction ─────────────────────────────────
+            PanelSectionHeader {
+                text: "EDGE GESTURE FEATURES"
+                foreground: root.foreground
             }
-            Button {
-                text: root.briEnabled ? "ON" : "OFF"
+
+            Toggle {
+                Layout.fillWidth: true
+                label: "Right Edge — Volume 🔊"
+                description: "Swipe vertically along right edge for audio"
+                checked: root.config.volume_enabled === true
+                opacity: root.config.enabled ? 1.0 : 0.5
                 onClicked: {
-                    root.briEnabled = !root.briEnabled
-                    root.saveConfig()
+                    if (root.config.enabled) {
+                        root.applySetting({ "volume_enabled": !root.config.volume_enabled })
+                    }
                 }
             }
-        }
 
-        // Invert Direction
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                text: "Invert Direction"
-                color: root.contentForeground
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.body
+            Toggle {
                 Layout.fillWidth: true
-            }
-            Button {
-                text: root.invertDir ? "YES" : "NO"
+                label: "Left Edge — Brightness ☀️"
+                description: "Swipe vertically along left edge for display brightness"
+                checked: root.config.brightness_enabled === true
+                opacity: root.config.enabled ? 1.0 : 0.5
                 onClicked: {
-                    root.invertDir = !root.invertDir
-                    root.saveConfig()
+                    if (root.config.enabled) {
+                        root.applySetting({ "brightness_enabled": !root.config.brightness_enabled })
+                    }
                 }
             }
-        }
 
-        Rectangle {
-            height: 1
-            color: Qt.rgba(root.contentForeground.r, root.contentForeground.g, root.contentForeground.b, 0.12)
-            Layout.fillWidth: true
-        }
-
-        // Edge Width
-        RowLayout {
-            Layout.fillWidth: true
-            Text {
-                text: "Edge Width: " + Math.round(root.edgePercent * 100) + "%"
-                color: Color.subtleText
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.caption
+            Toggle {
                 Layout.fillWidth: true
-            }
-            Button {
-                text: "Cycle"
+                label: "Invert Swipe Direction ⇅"
+                description: "Swipe down to increase, up to decrease"
+                checked: root.config.invert_direction === true
+                opacity: root.config.enabled ? 1.0 : 0.5
                 onClicked: {
-                    if (root.edgePercent <= 0.08) root.edgePercent = 0.10
-                    else if (root.edgePercent <= 0.10) root.edgePercent = 0.14
-                    else root.edgePercent = 0.08
-                    root.saveConfig()
+                    if (root.config.enabled) {
+                        root.applySetting({ "invert_direction": !root.config.invert_direction })
+                    }
+                }
+            }
+
+            PanelSeparator { Layout.fillWidth: true }
+
+            // ── Section 2: Volume Step Size ────────────────────────────────────
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PanelSectionHeader {
+                        text: "VOLUME STEP PER SWIPE"
+                        foreground: root.foreground
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        text: "±" + (root.config.volume_step || 2) + "%"
+                        color: root.accent
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                    }
+                }
+
+                // Preset Pills
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(6)
+
+                    Repeater {
+                        model: [1, 2, 3, 5, 10]
+                        delegate: BorderSurface {
+                            required property int modelData
+                            Layout.fillWidth: true
+                            implicitHeight: Style.space(24)
+                            radius: Style.cornerRadius
+                            readonly property bool isSelected: (root.config.volume_step || 2) === modelData
+                            color: isSelected ? Style.selectedFillFor(root.foreground, root.accent) : Style.normalFillFor(root.foreground, root.accent)
+                            borderSpec: Border.controlSpec(isSelected ? "selected" : "normal", root.foreground, root.accent)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData + "%"
+                                color: parent.isSelected ? root.foreground : root.dim
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.space(11)
+                                font.bold: parent.isSelected
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.applySetting({ "volume_step": parent.modelData })
+                            }
+                        }
+                    }
+                }
+
+                PanelSlider {
+                    Layout.fillWidth: true
+                    bar: root.bar
+                    minimum: 1
+                    maximum: 10
+                    step: 1
+                    integer: true
+                    value: root.config.volume_step || 2
+                    onReleased: function(v) {
+                        root.applySetting({ "volume_step": Math.round(v) })
+                    }
+                }
+            }
+
+            PanelSeparator { Layout.fillWidth: true }
+
+            // ── Section 3: Brightness Step Size ────────────────────────────────
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PanelSectionHeader {
+                        text: "BRIGHTNESS STEP PER SWIPE"
+                        foreground: root.foreground
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        text: "±" + (root.config.brightness_step || 2) + "%"
+                        color: root.accent
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                    }
+                }
+
+                // Preset Pills
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(6)
+
+                    Repeater {
+                        model: [1, 2, 3, 5, 10]
+                        delegate: BorderSurface {
+                            required property int modelData
+                            Layout.fillWidth: true
+                            implicitHeight: Style.space(24)
+                            radius: Style.cornerRadius
+                            readonly property bool isSelected: (root.config.brightness_step || 2) === modelData
+                            color: isSelected ? Style.selectedFillFor(root.foreground, root.accent) : Style.normalFillFor(root.foreground, root.accent)
+                            borderSpec: Border.controlSpec(isSelected ? "selected" : "normal", root.foreground, root.accent)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData + "%"
+                                color: parent.isSelected ? root.foreground : root.dim
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.space(11)
+                                font.bold: parent.isSelected
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.applySetting({ "brightness_step": parent.modelData })
+                            }
+                        }
+                    }
+                }
+
+                PanelSlider {
+                    Layout.fillWidth: true
+                    bar: root.bar
+                    minimum: 1
+                    maximum: 10
+                    step: 1
+                    integer: true
+                    value: root.config.brightness_step || 2
+                    onReleased: function(v) {
+                        root.applySetting({ "brightness_step": Math.round(v) })
+                    }
+                }
+            }
+
+            PanelSeparator { Layout.fillWidth: true }
+
+            // ── Section 4: Edge Width Strip ────────────────────────────────────
+            ColumnLayout {
+                Layout.fillWidth: true
+                spacing: Style.space(4)
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    PanelSectionHeader {
+                        text: "EDGE DETECTION STRIP WIDTH"
+                        foreground: root.foreground
+                        Layout.fillWidth: true
+                    }
+                    Text {
+                        text: Math.round((root.config.edge_start_percent || 0.10) * 100) + "%"
+                        color: root.accent
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: true
+                    }
+                }
+
+                // Width Preset Pills
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: Style.space(6)
+
+                    Repeater {
+                        model: [
+                            { label: "Slim 8%", val: 0.08 },
+                            { label: "Default 10%", val: 0.10 },
+                            { label: "Wide 14%", val: 0.14 }
+                        ]
+                        delegate: BorderSurface {
+                            required property var modelData
+                            Layout.fillWidth: true
+                            implicitHeight: Style.space(24)
+                            radius: Style.cornerRadius
+                            readonly property bool isSelected: Math.abs((root.config.edge_start_percent || 0.10) - modelData.val) < 0.01
+                            color: isSelected ? Style.selectedFillFor(root.foreground, root.accent) : Style.normalFillFor(root.foreground, root.accent)
+                            borderSpec: Border.controlSpec(isSelected ? "selected" : "normal", root.foreground, root.accent)
+
+                            Text {
+                                anchors.centerIn: parent
+                                text: modelData.label
+                                color: parent.isSelected ? root.foreground : root.dim
+                                font.family: root.fontFamily
+                                font.pixelSize: Style.space(10)
+                                font.bold: parent.isSelected
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: root.applySetting({ "edge_start_percent": parent.modelData.val, "edge_cancel_percent": parent.modelData.val + 0.06 })
+                            }
+                        }
+                    }
+                }
+
+                PanelSlider {
+                    Layout.fillWidth: true
+                    bar: root.bar
+                    minimum: 6
+                    maximum: 16
+                    step: 1
+                    integer: true
+                    value: Math.round((root.config.edge_start_percent || 0.10) * 100)
+                    onReleased: function(v) {
+                        var frac = Math.round(v) / 100.0
+                        root.applySetting({ "edge_start_percent": frac, "edge_cancel_percent": frac + 0.06 })
+                    }
                 }
             }
         }
