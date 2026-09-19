@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "id": "omshankara.touchpad-edge",
+  "name": "Touchpad Edge Controls",
+  "version": "1.0.0",
+  "author": "omshankara",
+  "license": "MIT",
+  "description": "Dual-edge vertical swipe sliders for laptop touchpads on Omarchy. Right edge swipes adjust system volume; left edge swipes adjust display brightness with native Omarchy OSD feedback. Features intelligent palm rejection, multi-touch bypass, and a status bar toggle panel.",
+  "kinds": [
+    "service",
+    "bar-widget",
+    "panel"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml",
+    "panel": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Touchpad Edge",
+    "description": "Touchpad dual-edge sliders for volume and brightness.",
+    "category": "Hardware",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}

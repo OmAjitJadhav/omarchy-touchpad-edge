@@ -1,0 +1,301 @@
+#!/usr/bin/python3
+"""
+Touchpad Edge Controls Daemon for Omarchy.
+Provides dual-edge gesture sliders on the laptop touchpad:
+  - Right Edge Vertical Swipe -> System Volume (with Omarchy volume OSD)
+  - Left Edge Vertical Swipe  -> Display Brightness (with Omarchy brightness OSD)
+
+Part of the omshankara.touchpad-edge plugin for Omarchy.
+"""
+
+import os
+import sys
+import json
+import time
+import signal
+import select
+import subprocess
+import evdev
+from evdev import ecodes
+
+CONFIG_PATH = os.path.expanduser("~/.config/omarchy/touchpad-edge.json")
+
+DEFAULT_CONFIG = {
+    "enabled": True,
+    "volume_enabled": True,
+    "brightness_enabled": True,
+    "edge_start_percent": 0.10,      # Outer 10% on left/right initiates the edge swipe
+    "edge_cancel_percent": 0.16,     # Drift threshold: cancelling if finger moves deeper than 16%
+    "step_travel_px": 45,            # Physical travel distance per step in touchpad units (~1.5 mm)
+    "volume_step": 2,                # Volume change percentage per step (+2% / -2%)
+    "brightness_step": 2,            # Brightness change percentage per step (+2% / -2%)
+    "invert_direction": False,       # False: Up raises / Down lowers; True: Inverted
+    "min_interval_sec": 0.03         # Minimum cooldown between hardware updates
+}
+
+
+def load_config():
+    """Load configuration from ~/.config/omarchy/touchpad-edge.json or fallback to defaults."""
+    cfg = dict(DEFAULT_CONFIG)
+    if os.path.isfile(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                user_cfg = json.load(f)
+                if isinstance(user_cfg, dict):
+                    cfg.update(user_cfg)
+        except Exception as err:
+            sys.stderr.write(f"touchpad-edge: could not read {CONFIG_PATH}: {err}\n")
+    return cfg
+
+
+class StepActionManager:
+    """Manages command execution and batching for edge swipe actions."""
+    def __init__(self, step_size, min_interval, command_builder):
+        self.step_size = step_size
+        self.min_interval = min_interval
+        self.command_builder = command_builder
+        self.pending_delta = 0
+        self.active_proc = None
+        self.last_exec_time = 0.0
+
+    def add_step(self, direction):
+        """direction: +1 for increase, -1 for decrease"""
+        self.pending_delta += direction * self.step_size
+        self.flush()
+
+    def flush(self, force=False):
+        now = time.monotonic()
+        if self.active_proc is not None:
+            if self.active_proc.poll() is None:
+                if not force:
+                    return
+            else:
+                self.active_proc = None
+
+        if self.pending_delta == 0:
+            return
+
+        if not force and (now - self.last_exec_time < self.min_interval):
+            return
+
+        delta = self.pending_delta
+        self.pending_delta = 0
+        self.last_exec_time = now
+
+        cmd = self.command_builder(delta)
+        try:
+            self.active_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        except Exception as err:
+            sys.stderr.write(f"touchpad-edge: execution error for {cmd}: {err}\n")
+
+
+def build_volume_cmd(delta):
+    arg = f"{'+' if delta > 0 else ''}{delta}"
+    return ["omarchy-audio-output-volume", arg]
+
+
+def build_brightness_cmd(delta):
+    if delta > 0:
+        arg = f"+{abs(delta)}%"
+    else:
+        arg = f"{abs(delta)}%-"
+    return ["omarchy-brightness-display", arg]
+
+
+def find_touchpad():
+    """Find the primary multi-touch touchpad device."""
+    devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+    touchpads = []
+    for dev in devices:
+        name_lower = dev.name.lower()
+        if "touchpad" in name_lower or "trackpad" in name_lower:
+            caps = dev.capabilities()
+            if ecodes.EV_ABS in caps:
+                abs_codes = [c[0] if isinstance(c, tuple) else c for c in caps[ecodes.EV_ABS]]
+                if ecodes.ABS_MT_POSITION_X in abs_codes and ecodes.ABS_MT_POSITION_Y in abs_codes:
+                    touchpads.append(dev)
+    if touchpads:
+        return touchpads[0]
+    return None
+
+
+def run_daemon():
+    cfg = load_config()
+    last_cfg_check = time.monotonic()
+
+    volume = StepActionManager(cfg["volume_step"], cfg["min_interval_sec"], build_volume_cmd)
+    brightness = StepActionManager(cfg["brightness_step"], cfg["min_interval_sec"], build_brightness_cmd)
+    running = True
+
+    def sig_handler(signum, frame):
+        nonlocal running
+        running = False
+
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+
+    while running:
+        dev = find_touchpad()
+        if not dev:
+            time.sleep(2)
+            continue
+
+        try:
+            abs_info = dev.capabilities()[ecodes.EV_ABS]
+            abs_dict = dict(abs_info)
+            x_info = abs_dict[ecodes.ABS_MT_POSITION_X]
+            y_info = abs_dict[ecodes.ABS_MT_POSITION_Y]
+
+            min_x, max_x = x_info.min, x_info.max
+            width = max_x - min_x
+
+            slots = {}
+            current_slot = 0
+
+            while running:
+                now = time.monotonic()
+                # Reload config every 2 seconds if changed
+                if now - last_cfg_check > 2.0:
+                    cfg = load_config()
+                    volume.step_size = cfg.get("volume_step", 2)
+                    brightness.step_size = cfg.get("brightness_step", 2)
+                    last_cfg_check = now
+
+                # Calculate boundaries with live config
+                edge_start = cfg.get("edge_start_percent", 0.10)
+                edge_cancel = cfg.get("edge_cancel_percent", 0.16)
+                step_px = cfg.get("step_travel_px", 45)
+                invert = cfg.get("invert_direction", False)
+                global_enabled = cfg.get("enabled", True)
+                vol_enabled = global_enabled and cfg.get("volume_enabled", True)
+                bri_enabled = global_enabled and cfg.get("brightness_enabled", True)
+
+                right_start_x = max_x - (width * edge_start)
+                right_cancel_x = max_x - (width * edge_cancel)
+                left_start_x = min_x + (width * edge_start)
+                left_cancel_x = min_x + (width * edge_cancel)
+
+                r, _, _ = select.select([dev.fd], [], [], 0.05)
+                volume.flush()
+                brightness.flush()
+
+                if not r:
+                    continue
+
+                for event in dev.read():
+                    if event.type == ecodes.EV_ABS:
+                        if event.code == ecodes.ABS_MT_SLOT:
+                            current_slot = event.value
+                            if current_slot not in slots:
+                                slots[current_slot] = {
+                                    "tracking_id": -1,
+                                    "x": None,
+                                    "y": None,
+                                    "last_y": None,
+                                    "accum_y": 0,
+                                    "edge_mode": None,
+                                }
+
+                        elif event.code == ecodes.ABS_MT_TRACKING_ID:
+                            if current_slot not in slots:
+                                slots[current_slot] = {
+                                    "tracking_id": -1,
+                                    "x": None,
+                                    "y": None,
+                                    "last_y": None,
+                                    "accum_y": 0,
+                                    "edge_mode": None,
+                                }
+                            slot_data = slots[current_slot]
+                            slot_data["tracking_id"] = event.value
+
+                            if event.value == -1:
+                                slot_data["edge_mode"] = None
+                                slot_data["x"] = None
+                                slot_data["y"] = None
+                                slot_data["last_y"] = None
+                                slot_data["accum_y"] = 0
+                            else:
+                                slot_data["edge_mode"] = None
+                                slot_data["x"] = None
+                                slot_data["y"] = None
+                                slot_data["last_y"] = None
+                                slot_data["accum_y"] = 0
+
+                        elif event.code == ecodes.ABS_MT_POSITION_X:
+                            if current_slot in slots:
+                                slot_data = slots[current_slot]
+                                slot_data["x"] = event.value
+
+                                if slot_data["tracking_id"] != -1 and slot_data["last_y"] is None:
+                                    active_count = sum(1 for s in slots.values() if s["tracking_id"] != -1)
+                                    if active_count == 1:
+                                        if vol_enabled and event.value >= right_start_x:
+                                            slot_data["edge_mode"] = "volume"
+                                        elif bri_enabled and event.value <= left_start_x:
+                                            slot_data["edge_mode"] = "brightness"
+                                        else:
+                                            slot_data["edge_mode"] = None
+
+                        elif event.code == ecodes.ABS_MT_POSITION_Y:
+                            if current_slot in slots:
+                                slot_data = slots[current_slot]
+                                new_y = event.value
+
+                                if slot_data["last_y"] is None:
+                                    slot_data["last_y"] = new_y
+                                    slot_data["y"] = new_y
+                                else:
+                                    dy = new_y - slot_data["last_y"]
+                                    slot_data["last_y"] = new_y
+                                    slot_data["y"] = new_y
+
+                                    active_count = sum(1 for s in slots.values() if s["tracking_id"] != -1)
+                                    mode = slot_data["edge_mode"]
+
+                                    if active_count == 1 and mode is not None and slot_data["x"] is not None:
+                                        if mode == "volume" and slot_data["x"] < right_cancel_x:
+                                            slot_data["edge_mode"] = None
+                                        elif mode == "brightness" and slot_data["x"] > left_cancel_x:
+                                            slot_data["edge_mode"] = None
+                                        else:
+                                            slot_data["accum_y"] += dy
+                                            manager = volume if mode == "volume" else brightness
+
+                                            # Direction calculation
+                                            up_dir = -1 if invert else +1
+                                            down_dir = +1 if invert else -1
+
+                                            while slot_data["accum_y"] <= -step_px:
+                                                manager.add_step(up_dir)
+                                                slot_data["accum_y"] += step_px
+
+                                            while slot_data["accum_y"] >= step_px:
+                                                manager.add_step(down_dir)
+                                                slot_data["accum_y"] -= step_px
+                                    else:
+                                        if active_count > 1:
+                                            slot_data["edge_mode"] = None
+
+                    elif event.type == ecodes.EV_KEY and event.code == ecodes.BTN_TOUCH:
+                        if event.value == 0:
+                            for s in slots.values():
+                                s["edge_mode"] = None
+                                s["tracking_id"] = -1
+                                s["accum_y"] = 0
+                            volume.flush(force=True)
+                            brightness.flush(force=True)
+
+        except (OSError, IOError):
+            time.sleep(1)
+
+    volume.flush(force=True)
+    brightness.flush(force=True)
+
+
+if __name__ == "__main__":
+    run_daemon()

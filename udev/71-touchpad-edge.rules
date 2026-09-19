@@ -1,0 +1,3 @@
+# Touchpad Edge Controls udev rule
+# Grants active logged-in seat user read access to the touchpad event device for edge gestures
+ACTION=="add|change", KERNEL=="event*", SUBSYSTEM=="input", ENV{ID_INPUT_TOUCHPAD}=="1", TAG+="uaccess"
