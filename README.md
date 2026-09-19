@@ -3,6 +3,10 @@
 [![Omarchy Plugin](https://img.shields.io/badge/Omarchy-Quattro%20Plugin-blue)](https://omarchy.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+<p align="center">
+  <img src="preview.png" alt="Touchpad Edge Controls Preview" width="100%">
+</p>
+
 Transform your laptop touchpad into intuitive, dual-edge hardware sliders for **Volume** and **Brightness** on [Omarchy](https://omarchy.org) Linux (Hyprland + Quickshell).
 
 ---
