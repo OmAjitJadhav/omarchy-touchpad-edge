@@ -5,6 +5,7 @@ function defaultConfig() {
         "enabled": true,
         "volume_enabled": true,
         "brightness_enabled": true,
+        "swap_edges": false,
         "edge_start_percent": 0.10,
         "edge_cancel_percent": 0.16,
         "step_travel_px": 45,
@@ -35,7 +36,14 @@ function formatEdgeWidth(pct) {
 function getTooltipText(cfg) {
     if (!cfg) return "Touchpad Edge Controls";
     if (!cfg.enabled) return "Touchpad Edge Controls (Disabled)";
-    var vStr = cfg.volume_enabled ? ("Vol ±" + (cfg.volume_step || 2) + "%") : "Vol OFF";
-    var bStr = cfg.brightness_enabled ? ("Bri ±" + (cfg.brightness_step || 2) + "%") : "Bri OFF";
-    return "Touchpad Edge: " + vStr + " · " + bStr;
+    var v = cfg.volume_step || 2;
+    var b = cfg.brightness_step || 2;
+    var vLabel = cfg.volume_enabled ? ("Vol ±" + v + "%") : "Vol OFF";
+    var bLabel = cfg.brightness_enabled ? ("Bri ±" + b + "%") : "Bri OFF";
+
+    if (cfg.swap_edges) {
+        return "Touchpad Edge: Left (" + vLabel + ") · Right (" + bLabel + ")";
+    } else {
+        return "Touchpad Edge: Left (" + bLabel + ") · Right (" + vLabel + ")";
+    }
 }

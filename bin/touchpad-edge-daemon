@@ -2,14 +2,19 @@
 """
 Touchpad Edge Controls Daemon for Omarchy.
 Provides dual-edge gesture sliders on the laptop touchpad:
-  - Right Edge Vertical Swipe -> System Volume (with Omarchy volume OSD)
-  - Left Edge Vertical Swipe  -> Display Brightness (with Omarchy brightness OSD)
+  - Default:
+      Right Edge Vertical Swipe -> System Volume (with Omarchy volume OSD)
+      Left Edge Vertical Swipe  -> Display Brightness (with Omarchy brightness OSD)
+  - Swapped (swap_edges=True):
+      Left Edge Vertical Swipe  -> System Volume (with Omarchy volume OSD)
+      Right Edge Vertical Swipe -> Display Brightness (with Omarchy brightness OSD)
 
 Part of the omshankara.touchpad-edge plugin for Omarchy.
 Supports:
   - Default: runs the background listener daemon
   - 'status': outputs current status and config as JSON
   - 'apply --json-data <json>': atomically updates configuration
+  - 'toggle': toggles master enable
 """
 
 import os
@@ -32,6 +37,7 @@ DEFAULT_CONFIG = {
     "enabled": True,
     "volume_enabled": True,
     "brightness_enabled": True,
+    "swap_edges": False,             # False: Left=Brightness, Right=Volume; True: Left=Volume, Right=Brightness
     "edge_start_percent": 0.10,      # Outer 10% initiates the edge swipe
     "edge_cancel_percent": 0.16,     # Cancel if finger drifts deeper than 16%
     "step_travel_px": 45,            # Physical travel distance per step in touchpad units (~1.5 mm)
@@ -207,6 +213,7 @@ def run_daemon():
                 edge_cancel = cfg.get("edge_cancel_percent", 0.16)
                 step_px = cfg.get("step_travel_px", 45)
                 invert = cfg.get("invert_direction", False)
+                swap = cfg.get("swap_edges", False)
                 global_enabled = cfg.get("enabled", True)
                 vol_enabled = global_enabled and cfg.get("volume_enabled", True)
                 bri_enabled = global_enabled and cfg.get("brightness_enabled", True)
@@ -271,10 +278,23 @@ def run_daemon():
                                 if slot_data["tracking_id"] != -1 and slot_data["last_y"] is None:
                                     active_count = sum(1 for s in slots.values() if s["tracking_id"] != -1)
                                     if active_count == 1:
-                                        if vol_enabled and event.value >= right_start_x:
-                                            slot_data["edge_mode"] = "volume"
-                                        elif bri_enabled and event.value <= left_start_x:
-                                            slot_data["edge_mode"] = "brightness"
+                                        # Edge assignment with swap_edges support
+                                        if event.value >= right_start_x:
+                                            # Right edge touch
+                                            if swap:
+                                                if bri_enabled:
+                                                    slot_data["edge_mode"] = "brightness"
+                                            else:
+                                                if vol_enabled:
+                                                    slot_data["edge_mode"] = "volume"
+                                        elif event.value <= left_start_x:
+                                            # Left edge touch
+                                            if swap:
+                                                if vol_enabled:
+                                                    slot_data["edge_mode"] = "volume"
+                                            else:
+                                                if bri_enabled:
+                                                    slot_data["edge_mode"] = "brightness"
                                         else:
                                             slot_data["edge_mode"] = None
 
@@ -295,9 +315,11 @@ def run_daemon():
                                     mode = slot_data["edge_mode"]
 
                                     if active_count == 1 and mode is not None and slot_data["x"] is not None:
-                                        if mode == "volume" and slot_data["x"] < right_cancel_x:
+                                        # Verify finger hasn't drifted outside edge boundaries
+                                        is_right_mode = (mode == "brightness") if swap else (mode == "volume")
+                                        if is_right_mode and slot_data["x"] < right_cancel_x:
                                             slot_data["edge_mode"] = None
-                                        elif mode == "brightness" and slot_data["x"] > left_cancel_x:
+                                        elif (not is_right_mode) and slot_data["x"] > left_cancel_x:
                                             slot_data["edge_mode"] = None
                                         else:
                                             slot_data["accum_y"] += dy

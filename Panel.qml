@@ -8,7 +8,7 @@ import qs.Ui
 import "Model.js" as Model
 
 // Settings popup panel for Touchpad Edge Controls.
-// Allows configuring master state, individual sliders, step sizes, and edge width.
+// Allows configuring master state, individual sliders, edge swap, step sizes, and edge width.
 Panel {
     id: root
     moduleName: "omshankara.touchpad-edge"
@@ -100,7 +100,7 @@ Panel {
         owner: root
         open: root.opened
         contentWidth: Style.space(380)
-        contentHeight: Style.space(670)
+        contentHeight: Style.space(730)
 
         ColumnLayout {
             anchors.fill: parent
@@ -173,16 +173,35 @@ Panel {
 
             PanelSeparator { Layout.fillWidth: true }
 
-            // ── Section 1: Sliders & Direction ─────────────────────────────────
+            // ── Section 1: Sliders, Swap & Direction ───────────────────────────
             PanelSectionHeader {
-                text: "EDGE GESTURE FEATURES"
+                text: "EDGE ASSIGNMENTS & GESTURES"
                 foreground: root.foreground
             }
 
+            // Swap Sides Toggle
             Toggle {
                 Layout.fillWidth: true
-                label: "Right Edge — Volume 🔊"
-                description: "Swipe vertically along right edge for audio"
+                label: "Swap Sides ⇄"
+                description: root.config.swap_edges
+                    ? "Left: Volume (🔊) · Right: Brightness (☀️)"
+                    : "Left: Brightness (☀️) · Right: Volume (🔊)"
+                checked: root.config.swap_edges === true
+                opacity: root.config.enabled ? 1.0 : 0.5
+                onClicked: {
+                    if (root.config.enabled) {
+                        root.applySetting({ "swap_edges": !root.config.swap_edges })
+                    }
+                }
+            }
+
+            // Volume Toggle
+            Toggle {
+                Layout.fillWidth: true
+                label: root.config.swap_edges ? "Left Edge — Volume 🔊" : "Right Edge — Volume 🔊"
+                description: root.config.swap_edges
+                    ? "Swipe vertically along left edge for audio"
+                    : "Swipe vertically along right edge for audio"
                 checked: root.config.volume_enabled === true
                 opacity: root.config.enabled ? 1.0 : 0.5
                 onClicked: {
@@ -192,10 +211,13 @@ Panel {
                 }
             }
 
+            // Brightness Toggle
             Toggle {
                 Layout.fillWidth: true
-                label: "Left Edge — Brightness ☀️"
-                description: "Swipe vertically along left edge for display brightness"
+                label: root.config.swap_edges ? "Right Edge — Brightness ☀️" : "Left Edge — Brightness ☀️"
+                description: root.config.swap_edges
+                    ? "Swipe vertically along right edge for display brightness"
+                    : "Swipe vertically along left edge for display brightness"
                 checked: root.config.brightness_enabled === true
                 opacity: root.config.enabled ? 1.0 : 0.5
                 onClicked: {
@@ -205,6 +227,7 @@ Panel {
                 }
             }
 
+            // Invert Direction Toggle
             Toggle {
                 Layout.fillWidth: true
                 label: "Invert Swipe Direction ⇅"
@@ -241,7 +264,6 @@ Panel {
                     }
                 }
 
-                // Preset Pills
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Style.space(6)
@@ -312,7 +334,6 @@ Panel {
                     }
                 }
 
-                // Preset Pills
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Style.space(6)
@@ -383,7 +404,6 @@ Panel {
                     }
                 }
 
-                // Width Preset Pills
                 RowLayout {
                     Layout.fillWidth: true
                     spacing: Style.space(6)

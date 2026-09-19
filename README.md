@@ -13,6 +13,7 @@ Transform your laptop touchpad into intuitive, dual-edge hardware sliders for **
 - **☀️ Left Edge Slider**: Slide your finger vertically along the far left edge of your touchpad to brighten or dim your display.
 - **🎛️ Complete Customization & Control**:
   - **Master ON / OFF**: Instant toggle for all gestures.
+  - **Swap Sides ⇄**: Freely swap edge roles (Left: Volume / Right: Brightness OR Left: Brightness / Right: Volume).
   - **Individual Sliders**: Disable Brightness or Volume separately.
   - **Fine-Grained Step Tuning**: Adjust exactly how much volume and brightness change per small swipe (from `±1%` up to `±10%`, with instant `1%`, `2%`, `3%`, `5%`, `10%` preset pills).
   - **Edge Width Calibration**: Customize the active strip width (`8%`, `10%`, `14%`).
@@ -46,12 +47,12 @@ cd ~/.config/omarchy/plugins/omshankara.touchpad-edge
 
 ## 🎮 How to Use
 
-| Edge | Direction | Action | Feedback |
-| :--- | :--- | :--- | :--- |
-| **Right Edge** (outer 10%) | Swipe **Up** | **Volume Up** (+2%) | Omarchy Volume OSD 🔊 |
-| **Right Edge** (outer 10%) | Swipe **Down** | **Volume Down** (-2%) | Omarchy Volume OSD 🔉 |
-| **Left Edge** (outer 10%) | Swipe **Up** | **Brightness Up** (+2%) | Omarchy Brightness OSD ☀️ |
-| **Left Edge** (outer 10%) | Swipe **Down** | **Brightness Down** (-2%) | Omarchy Brightness OSD 🌙 |
+| Edge (Default) | Edge (Swapped) | Direction | Action | Feedback |
+| :--- | :--- | :--- | :--- | :--- |
+| **Right Edge** | **Left Edge** | Swipe **Up** | **Volume Up** (+2%) | Omarchy Volume OSD 🔊 |
+| **Right Edge** | **Left Edge** | Swipe **Down** | **Volume Down** (-2%) | Omarchy Volume OSD 🔉 |
+| **Left Edge** | **Right Edge** | Swipe **Up** | **Brightness Up** (+2%) | Omarchy Brightness OSD ☀️ |
+| **Left Edge** | **Right Edge** | Swipe **Down** | **Brightness Down** (-2%) | Omarchy Brightness OSD 🌙 |
 
 > **Tip:** You only need a gentle, single-finger slide along the outer edge border of your trackpad.
 
@@ -66,6 +67,7 @@ Options can be customized via the status bar popup panel or directly in `~/.conf
   "enabled": true,
   "volume_enabled": true,
   "brightness_enabled": true,
+  "swap_edges": false,
   "edge_start_percent": 0.10,
   "edge_cancel_percent": 0.16,
   "step_travel_px": 45,
@@ -75,6 +77,7 @@ Options can be customized via the status bar popup panel or directly in `~/.conf
 }
 ```
 
+- **`swap_edges`**: Set to `true` to place Volume on the Left and Brightness on the Right (default: `false`).
 - **`edge_start_percent`**: Width of the edge detection strip (default: `0.10` = outer 10%).
 - **`volume_step` / `brightness_step`**: Percentage change per tick (default: `2`%).
 - **`step_travel_px`**: Touchpad travel distance required per adjustment tick (~1.5 mm).
