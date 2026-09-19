@@ -11,12 +11,18 @@ Transform your laptop touchpad into intuitive, dual-edge hardware sliders for **
 
 - **🔊 Right Edge Slider**: Slide your finger vertically along the far right edge of your touchpad to raise or lower the audio volume.
 - **☀️ Left Edge Slider**: Slide your finger vertically along the far left edge of your touchpad to brighten or dim your display.
+- **🎛️ Complete Customization & Control**:
+  - **Master ON / OFF**: Instant toggle for all gestures.
+  - **Individual Sliders**: Disable Brightness or Volume separately.
+  - **Fine-Grained Step Tuning**: Adjust exactly how much volume and brightness change per small swipe (from `±1%` up to `±10%`, with instant `1%`, `2%`, `3%`, `5%`, `10%` preset pills).
+  - **Edge Width Calibration**: Customize the active strip width (`8%`, `10%`, `14%`).
+  - **Invert Direction**: Swipe up or down to your personal preference.
 - **🖥️ Native Omarchy OSD Feedback**: Seamlessly displays Omarchy's centered on-screen display (OSD) HUD in real-time as you swipe.
 - **🛡️ Palm & Accidental Touch Rejection**:
   - Edge gestures **only** activate if your touch starts directly on the outer edge.
   - Normal pointer motion starting anywhere in the center 80% will never trigger volume or brightness, even if your finger wanders toward the edges.
 - **✌️ Multi-Touch Bypass**: Two-finger scrolling, pinch-to-zoom, and 3/4-finger workspace gestures are instantly recognized and completely uninterrupted.
-- **📊 Omarchy Bar Widget & Settings Panel**: Click the touchpad icon in your Omarchy status bar to toggle sliders, invert swipe directions, or calibrate edge width on the fly.
+- **📊 Omarchy Bar Widget & Native Popup Card**: Click the touchpad icon (`󰍽`) in your Omarchy status bar to open the settings panel; right-click for instant master toggle!
 - **⚡ Ultra-low Overhead**: Lightweight, event-driven Python daemon with debounced asynchronous execution (~1.2 MB RAM, <0.01% CPU).
 
 ---
