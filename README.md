@@ -1,4 +1,4 @@
-# 󰍽 Touchpad Edge Controls for Omarchy
+# Touchpad Edge Controls for Omarchy
 
 [![Omarchy Plugin](https://img.shields.io/badge/Omarchy-Quattro%20Plugin-blue)](https://omarchy.org)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
