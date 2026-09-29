@@ -160,24 +160,136 @@ def build_brightness_cmd(delta):
     return ["omarchy-brightness-display", arg]
 
 
+def _udev_properties(dev_path):
+    """Return udev properties dict for a /dev/input/event* node, or {} on failure."""
+    try:
+        out = subprocess.run(
+            ["udevadm", "info", "--query=property", f"--name={dev_path}"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+            check=False,
+            text=True,
+        )
+        props = {}
+        if out.returncode == 0 and out.stdout:
+            for line in out.stdout.splitlines():
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    props[k.strip()] = v.strip()
+        return props
+    except Exception:
+        return {}
+
+
+def _is_udev_touchpad(dev_path):
+    return _udev_properties(dev_path).get("ID_INPUT_TOUCHPAD") == "1"
+
+
+def _pretty_name(dev, udev_props=None):
+    """Return a human-friendly name; maps bare driver names (e.g. bcm5974) via udev model."""
+    name = (dev.name or "").strip()
+    bare = name.lower()
+    if bare in ("bcm5974", "appletouch", "appletb-kbd", "appletb-bl"):
+        try:
+            props = udev_props if udev_props is not None else _udev_properties(dev.path)
+            for key in ("ID_MODEL", "ID_USB_MODEL", "ID_MODEL_FROM_DATABASE"):
+                model = props.get(key, "").strip()
+                if model:
+                    pretty = model.replace("_", " ").strip()
+                    if pretty:
+                        return f"{pretty} ({name})"
+        except Exception:
+            pass
+        # Fallback label so UI doesn't just show a kernel module name
+        if bare == "bcm5974":
+            return "Apple Trackpad (bcm5974)"
+        return f"{name} Touchpad"
+    return name
+
+
 def find_touchpad():
-    """Find the primary multi-touch touchpad device."""
+    """Find the primary multi-touch touchpad device.
+
+    Strategy (in order):
+      1. Any MT device flagged ID_INPUT_TOUCHPAD=1 by udev (authoritative on
+         systemd systems; covers Apple bcm5974/appletouch, HID, I2C, etc.).
+      2. Name/property heuristic for systems without udev info: MT coords +
+         touchpad-like name, known driver names, or touch keys + pointer props.
+    """
     try:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
     except Exception:
         return None
 
-    touchpads = []
+    mt_devices = []
     for dev in devices:
-        name_lower = dev.name.lower()
-        if "touchpad" in name_lower or "trackpad" in name_lower:
+        try:
             caps = dev.capabilities()
-            if ecodes.EV_ABS in caps:
-                abs_codes = [c[0] if isinstance(c, tuple) else c for c in caps[ecodes.EV_ABS]]
-                if ecodes.ABS_MT_POSITION_X in abs_codes and ecodes.ABS_MT_POSITION_Y in abs_codes:
-                    touchpads.append(dev)
-    if touchpads:
-        return touchpads[0]
+        except Exception:
+            continue
+        if ecodes.EV_ABS not in caps:
+            continue
+        abs_codes = [c[0] if isinstance(c, tuple) else c for c in caps[ecodes.EV_ABS]]
+        if ecodes.ABS_MT_POSITION_X in abs_codes and ecodes.ABS_MT_POSITION_Y in abs_codes:
+            mt_devices.append(dev)
+    if not mt_devices:
+        return None
+
+    # 1. Authoritative: udev ID_INPUT_TOUCHPAD
+    for dev in mt_devices:
+        try:
+            if _is_udev_touchpad(dev.path):
+                return dev
+        except Exception:
+            continue
+
+    # 2. Heuristic fallback (no udev info, containers, non-systemd, etc.)
+    known_drivers = (
+        "touchpad", "trackpad", "glidepoint", "clickpad",
+        "bcm5974", "appletouch", "appletb", "cyapa", "cypress",
+        "synaptics", "synps", "elan", "elantech", "alps", "atmel",
+        "rmi4", "rmi", "syna", "dll0", "dll07", "hid-over-i2c",
+    )
+    touch_keys = {
+        getattr(ecodes, "BTN_TOUCH", 330),
+        getattr(ecodes, "BTN_TOOL_FINGER", 325),
+        getattr(ecodes, "BTN_TOOL_DOUBLETAP", 333),
+        getattr(ecodes, "BTN_TOOL_TRIPLETAP", 334),
+    }
+    scored = []
+    for dev in mt_devices:
+        name_lower = (dev.name or "").lower()
+        try:
+            caps = dev.capabilities()
+            key_codes = set(caps.get(ecodes.EV_KEY, []))
+        except Exception:
+            key_codes = set()
+        try:
+            props = set(dev.input_props()) if hasattr(dev, "input_props") else set()
+        except Exception:
+            props = set()
+        # INPUT_PROP_DIRECT=1 means touchscreen; POINTER=0 + BUTTONPAD=2 is typical touchpad
+        is_direct = 1 in props
+        has_touch_key = bool(touch_keys & key_codes)
+        name_hit = any(k in name_lower for k in known_drivers)
+        if is_direct and not name_hit:
+            continue  # likely a touchscreen, skip unless explicitly named
+        score = 0
+        if name_hit:
+            score += 10
+        if has_touch_key:
+            score += 5
+        if 0 in props:  # INPUT_PROP_POINTER
+            score += 2
+        if 2 in props:  # INPUT_PROP_BUTTONPAD (clickpads)
+            score += 2
+        if score > 0:
+            scored.append((score, dev))
+    if scored:
+        scored.sort(key=lambda t: t[0], reverse=True)
+        return scored[0][1]
+
     return None
 
 
@@ -407,7 +519,13 @@ def main():
     if args.action == "status":
         cfg = load_config()
         dev = find_touchpad()
-        cfg["device_name"] = dev.name if dev else "Touchpad Not Found"
+        if dev is not None:
+            try:
+                cfg["device_name"] = _pretty_name(dev)
+            except Exception:
+                cfg["device_name"] = dev.name
+        else:
+            cfg["device_name"] = "Touchpad Not Found"
         cfg["device_found"] = dev is not None
         print(json.dumps(cfg))
     elif args.action == "apply":
